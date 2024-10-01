@@ -1,77 +1,111 @@
-﻿using System.Numerics;
-
-namespace rpgmaker_mv_decoder;
+﻿namespace rpgmaker_mv_decoder;
 
 public static class RPGMakerDecryptor
 {
-	public static readonly byte[] RPG_MAKER_MV_MAGIC = new byte[] { 0x52, 0x50, 0x47, 0x4d, 0x56 };
+	private const string OctetStream = "application/octet-stream";
+	private const string RPG_MAKER_MV_MAGIC = "5250474d560000000003010000000000";
 
 	/// <summary>
-	/// Decryption using XOR operation
+	/// Perform XOR encryption/decryption on a byte array using a given key.
 	/// </summary>
-	/// <param name="data">Data</param>
-	/// <param name="key">Key</param>
-	/// <returns>Decrypted data</returns>
+	/// <param name="data">The byte array to encrypt/decrypt.</param>
+	/// <param name="key">The key used for the XOR operation.</param>
 	/// <exception cref="ArgumentNullException">Data or key is null</exception>
-	/// <exception cref="ArgumentException">Key is empty</exception>
-	/// <remarks>Performing the XOR operation byte by byte, which is simpler and more efficient, and it avoids the need to handle endianness.</remarks>
+	/// <returns>The encrypted/decrypted byte array.</returns>
+	/// <remarks>The logic in this code will always return big endian bytes.</remarks>
 	public static byte[] IntXor(byte[] data, byte[] key)
 	{
-		if (data == null || key == null)
+		// Check for null or empty data
+		ArgumentNullException.ThrowIfNull(data);
+		ArgumentNullException.ThrowIfNull(key);
+
+		// Ensure the key is as long as data (truncate if necessary)
+		var adjustedKey = new byte[data.Length];
+		Array.Copy(key, adjustedKey, Math.Min(key.Length, data.Length));
+
+		// Convert byte array to BigInteger for XOR operation
+		var intData = new System.Numerics.BigInteger(data);
+		var intKey = new System.Numerics.BigInteger(adjustedKey);
+
+		// Perform XOR operation
+		var intEnc = intData ^ intKey;
+
+		// Convert the result back to a byte array
+		var result = intEnc.ToByteArray();
+
+		// Ensure the result length matches the original input length
+		if (result.Length < data.Length)
 		{
-			throw new ArgumentNullException(data == null ? nameof(data) : nameof(key), "Data or key cannot be null");
+			// If result is shorter, pad with leading zeros
+			var paddedResult = new byte[data.Length];
+			Array.Copy(result, 0, paddedResult, data.Length - result.Length, result.Length);
+			return paddedResult;
 		}
-
-		if (key.Length == 0)
+		else if (result.Length > data.Length)
 		{
-			throw new ArgumentException("Key must not be empty", nameof(key));
-		}
-
-		var result = new byte[data.Length];
-
-		for (var i = 0; i < data.Length; i++)
-		{
-			// i % key.Length is a trick to ensure the index always smaller than key.Length
-			result[i] = (byte)(data[i] ^ key[i % key.Length]);
+			// If result is longer, trim the extra bytes
+			Array.Resize(ref result, data.Length);
 		}
 
 		return result;
 	}
 
 	/// <summary>
-	/// Decryption using XOR operation
+	/// Get decrypted header
 	/// </summary>
-	/// <param name="data">Data</param>
+	/// <param name="fileContent">File content</param>
 	/// <param name="key">Key</param>
-	/// <returns>Decrypted data</returns>
-	/// <exception cref="ArgumentNullException">Data or key is null</exception>
-	/// <exception cref="ArgumentException">Key is empty</exception>
-	/// <remarks>Original version of performing the XOR operation from Python. Just take a note that C# will use littile endian while Python is using big endian</remarks>
-	public static byte[] OriginalIntXor(byte[] data, byte[] key)
+	/// <returns>Decrypted header</returns>
+	/// <exception cref="ArgumentException">File content is invalid</exception>
+	public static byte[] GetDecryptedHeader(byte[] fileContent, byte[] key)
 	{
-		if (data == null || key == null)
+		// Ensure the input fileContent has enough bytes
+		if (fileContent.Length < 32)
 		{
-			throw new ArgumentNullException(data == null ? nameof(data) : nameof(key), "Data or key cannot be null");
+			throw new ArgumentException("File content must be at least 32 bytes long.");
 		}
 
-		if (key.Length == 0)
+		// Extract the first 32 bytes for ID and header
+		var idBytes = fileContent.Take(16).ToArray();
+		var headerBytes = fileContent.Skip(16).Take(16).ToArray();
+
+		// Validate ID against the RPG Maker MV magic number
+		if (string.Compare(
+			BitConverter.ToString(idBytes).Replace("-", ""),
+			RPG_MAKER_MV_MAGIC,
+			StringComparison.OrdinalIgnoreCase) != 0)
 		{
-			throw new ArgumentException("Key must not be empty", nameof(key));
+			throw new ArgumentException("First 16 bytes look wrong on this file", nameof(key));
 		}
 
-		// Ensure key is as long as var
-		key = key.Take(data.Length).ToArray();
+		return IntXor(headerBytes, key);
+	}
 
-		// Convert byte arrays to BigInteger (reverse for big-endian)
-		var intVar = new BigInteger(data.Reverse().ToArray());
-		var intKey = new BigInteger(key.Reverse().ToArray());
+	/// <summary>
+	/// Update source path
+	/// </summary>
+	/// <param name="srcPath">Source</param>
+	/// <returns>New source path</returns>
+	/// <exception cref="ArgumentException">srcPath is invalid</exception>
+	public static string UpdateSrcPath(string srcPath)
+	{
+		var srcInfo = new DirectoryInfo(srcPath);
 
-		// Perform XOR operation (big-endian)
-		var intEnc = intVar ^ intKey;
+		if (Directory.Exists(Path.Combine(srcPath, "img")))
+		{
+			Console.WriteLine("Found 'img' in source path, using parent directory name");
+			srcPath = srcInfo.Parent!.Parent!.FullName; // Move two directories up
+		}
+		else if (Directory.Exists(Path.Combine(srcPath, "www")))
+		{
+			Console.WriteLine("Found 'www' in source path, using parent directory name");
+			srcPath = srcInfo.Parent!.FullName; // Move one directory up
+		}
+		else
+		{
+			throw new ArgumentException("Source path is invalid (not contain RPG Maker project)", nameof(srcPath));
+		}
 
-		// Convert back to byte array and reverse again
-		var result = intEnc.ToByteArray().Reverse().ToArray();
-
-		return result;
+		return srcPath;
 	}
 }
