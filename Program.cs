@@ -1,4 +1,6 @@
-﻿namespace rpgmaker_mv_decoder
+﻿using System;
+
+namespace rpgmaker_decoder
 {
 	internal class Program
 	{

@@ -1,115 +1,215 @@
-﻿namespace rpgmaker_mv_decoder;
+﻿using System;
+using System.IO;
+using System.Linq;
 
-public static class RPGMakerDecryptor
+namespace rpgmaker_decoder
 {
-	private const string OctetStream = "application/octet-stream";
-	private const int DEFAULT_HEADER_LENGTH = 16;
-	private const string DEFAULT_SIGNATURE = "5250474d56000000";
-	private const string DEFAULT_VERSION = "000301";
-	private const string DEFAULT_REMAIN = "0000000000";
-
-	private static readonly byte[] _pngHeaderBytes = new byte[]
+	public class RPGMakerDecryptor
 	{
-		0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-		0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52
-	};
+		private const int DEFAULT_HEADER_LENGTH = 16;
+		private const string DEFAULT_SIGNATURE = "5250474d56000000";
+		private const string DEFAULT_VERSION = "000301";
+		private const string DEFAULT_REMAIN = "0000000000";
+		private const string PNG_HEADER = "89504e470d0a1a0a0000000d49484452";
 
-	public static byte[] PNG_HEADER_BYTES => (byte[])_pngHeaderBytes.Clone();
-
-	/// <summary>
-	/// Perform XOR encryption/decryption on a byte array using a given key.
-	/// </summary>
-	/// <param name="data">The byte array to encrypt/decrypt.</param>
-	/// <param name="key">The key used for the XOR operation.</param>
-	/// <returns>The encrypted/decrypted byte array.</returns>
-	/// <exception cref="ArgumentNullException">Data or key is null</exception>
-	/// <remarks>The logic in this code will always return big endian bytes.</remarks>
-	public static byte[] IntXor(byte[] data, byte[] key)
-	{
-		// Check for null data
-		ArgumentNullException.ThrowIfNull(data);
-		ArgumentNullException.ThrowIfNull(key);
-
-		// Ensure the key is as long as data (truncate if necessary)
-		var adjustedKey = new byte[data.Length];
-		Array.Copy(key, adjustedKey, Math.Min(key.Length, data.Length));
-
-		// Convert byte array to BigInteger for XOR operation
-		var intData = new System.Numerics.BigInteger(data);
-		var intKey = new System.Numerics.BigInteger(adjustedKey);
-
-		// Perform XOR operation
-		var intEnc = intData ^ intKey;
-
-		// Convert the result back to a byte array
-		var result = intEnc.ToByteArray();
-
-		// Ensure the result length matches the original input length
-		if (result.Length < data.Length)
+		public RPGMakerDecryptor()
 		{
-			// If result is shorter, pad with leading zeros
-			var paddedResult = new byte[data.Length];
-			Array.Copy(result, 0, paddedResult, data.Length - result.Length, result.Length);
-			return paddedResult;
-		}
-		else if (result.Length > data.Length)
-		{
-			// If result is longer, trim the extra bytes
-			Array.Resize(ref result, data.Length);
+			this.HeaderLength = DEFAULT_HEADER_LENGTH;
+			this.Signature = DEFAULT_SIGNATURE;
+			this.Version = DEFAULT_VERSION;
+			this.Remain = DEFAULT_REMAIN;
+			this.IgnoreFakeHeader = false;
 		}
 
-		return result;
-	}
-
-	/// <summary>
-	/// Get decrypted header
-	/// </summary>
-	/// <param name="fileContent">File content</param>
-	/// <param name="key">Key</param>
-	/// <returns>Decrypted header</returns>
-	/// <exception cref="ArgumentException">File content is invalid</exception>
-	public static byte[] GetDecryptedHeader(byte[] fileContent, byte[] key)
-	{
-		// Ensure the input fileContent has enough bytes
-		if (fileContent.Length < 32)
+		public RPGMakerDecryptor(string decryptCode) : this()
 		{
-			throw new ArgumentException("File content must be at least 32 bytes long.");
+			this.DecryptCode = decryptCode;
 		}
 
-		// Extract the first 32 bytes for ID and header
-		var idBytes = fileContent.Take(DEFAULT_HEADER_LENGTH).ToArray();
-		var headerBytes = fileContent.Skip(DEFAULT_HEADER_LENGTH).Take(DEFAULT_HEADER_LENGTH).ToArray();
-
-		// TODO: Not sure that we need to validate idBytes at this point
-
-		return IntXor(headerBytes, key);
-	}
-
-	/// <summary>
-	/// Update source path
-	/// </summary>
-	/// <param name="srcPath">Source</param>
-	/// <returns>New source path</returns>
-	/// <exception cref="ArgumentException">Source path is invalid</exception>
-	public static string UpdateSrcPath(string srcPath)
-	{
-		var srcInfo = new DirectoryInfo(srcPath);
-
-		if (Directory.Exists(Path.Combine(srcPath, "img")))
+		public void DecryptFile(RPGMakerFile file, bool isRestorePngImage)
 		{
-			Console.WriteLine("Found 'img' in source path, using parent directory name");
-			srcPath = srcInfo.Parent!.Parent!.FullName; // Move two directories up
-		}
-		else if (Directory.Exists(Path.Combine(srcPath, "www")))
-		{
-			Console.WriteLine("Found 'www' in source path, using parent directory name");
-			srcPath = srcInfo.Parent!.FullName; // Move one directory up
-		}
-		else
-		{
-			throw new ArgumentException("Source path is invalid (not contain RPG Maker project)", nameof(srcPath));
+			if (file.CheckExist() == false)
+			{
+				throw new FileNotFoundException("File is not existed", nameof(file.Name));
+			}
+
+			var content = file.Content;
+
+			// Check fake header
+			if (CheckFakeHeader(content) == false)
+			{
+				throw new Exception("Header is Invalid!");
+			}
+
+			// Remove fake header
+			content = GetByteArray(content, GetHeaderLength());
+
+			var pngHeaderByteArray = GetPngHeaderByteArray();
+			var decryptionCodeByteArray = GetDecryptionCodeByteArray();
+
+			if (content.Length > 0)
+			{
+				for (var i = 0; i < this.GetHeaderLength(); i++)
+				{
+					if (isRestorePngImage)
+					{
+						// Restore pictures by replacing content with PNG header bytes
+						content[i] = pngHeaderByteArray[i];
+					}
+					else
+					{
+						// Decrypt by using decryption code
+						content[i] = (byte)(content[i] ^ decryptionCodeByteArray[i]);
+					}
+				}
+			}
 		}
 
-		return srcPath;
+		public void DetectEncryptionKeyFromImage(RPGMakerFile file)
+		{
+			if (file.CheckExist() == false)
+			{
+				throw new FileNotFoundException("File is not existed", nameof(file.Name));
+			}
+
+			var content = file.Content;
+
+			var keyBytes = new byte[GetHeaderLength()];
+
+			// Check fake header
+			if (CheckFakeHeader(content) == false)
+			{
+				throw new Exception("Header is Invalid!");
+			}
+
+			// Remove fake header
+			content = GetByteArray(content, GetHeaderLength());
+
+			var pngHeaderByteArray = GetPngHeaderByteArray();
+
+			if (content.Length > 0)
+			{
+				for (var i = 0; i < GetHeaderLength(); i++)
+				{
+					keyBytes[i] = (byte)(content[i] ^ pngHeaderByteArray[i]);
+				}
+			}
+
+			this.DecryptCode = BytesToHex(keyBytes);
+		}
+
+		private byte[] GetDecryptionCodeByteArray()
+		{
+			if (this.DecryptCode == null)
+			{
+				throw new ArgumentNullException(nameof(this.DecryptCode));
+			}
+			return HexToBytes(this.DecryptCode);
+		}
+
+		private bool CheckFakeHeader(byte[] content)
+		{
+			if (this.IgnoreFakeHeader == false) return true;
+
+			var header = GetByteArray(content, 0, GetHeaderLength());
+			var refBytes = GetRpgHeaderBytes();
+
+			// Verify header (Check if its an encrypted file)
+			for (var i = 0; i < this.GetHeaderLength(); i++)
+			{
+				if (refBytes[i] != header[i])
+					return false;
+			}
+
+			return true;
+		}
+
+		private void GenerateRpgHeaderBytes()
+		{
+			var headerHex = this.Signature + this.Version + this.Remain;
+			var headerBytes = HexToBytes(headerHex);
+			this.RpgHeaderBytes = headerBytes;
+		}
+
+		private byte[] GetPngHeaderByteArray()
+		{
+			return HexToBytes(PNG_HEADER);
+		}
+
+		private byte[] HexToBytes(string hex)
+		{
+			return Enumerable.Range(0, hex.Length)
+				.Where(x => x % 2 == 0)
+				.Select(x => Convert.ToByte(hex.Substring(x, 2), 16))
+				.ToArray();
+		}
+
+		private string BytesToHex(byte[] bytes)
+		{
+			return BitConverter.ToString(bytes).Replace("-", "").ToLower();
+		}
+
+		private static byte[] GetByteArray(byte[] byteArray, int startPos, int? length = null)
+		{
+			// Don't allow start-values below 0
+			if (startPos < 0)
+				startPos = 0;
+
+			// Check if length is below 0 (to end of array)
+			if (length < 0 || length == null)
+				length = byteArray.Length - startPos;
+
+			var newByteArray = new byte[(int)length];
+			var n = 0;
+
+			for (var i = startPos; i < (startPos + length); i++)
+			{
+				// Check if byte array is at the last pos and return shorter byte array if necessary
+				if (byteArray.Length <= i)
+					return GetByteArray(newByteArray, 0, n);
+
+				newByteArray[n] = byteArray[i];
+				n++;
+			}
+
+			return newByteArray;
+		}
+
+		public int GetHeaderLength()
+		{
+			return this.HeaderLength;
+		}
+
+		public string GetSignature()
+		{
+			return this.Signature;
+		}
+
+		public string GetVersion()
+		{
+			return this.Version;
+		}
+
+		public string GetRemain()
+		{
+			return this.Remain;
+		}
+
+		public byte[] GetRpgHeaderBytes()
+		{
+			if (this.RpgHeaderBytes == null)
+			{
+				GenerateRpgHeaderBytes();
+			}
+			return this.RpgHeaderBytes;
+		}
+
+		private int HeaderLength { get; set; }
+		private string Signature { get; set; }
+		private string Version { get; set; }
+		private string Remain { get; set; }
+		private byte[] RpgHeaderBytes { get; set; }
+		private bool IgnoreFakeHeader { get; set; }
+		private string DecryptCode { get; set; }
 	}
 }
