@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.10.35013.160
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "rpgmaker_mv_decoder", "rpgmaker_mv_decoder.csproj", "{3FB7AA86-683A-4D50-A485-04F76C31D551}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{3FB7AA86-683A-4D50-A485-04F76C31D551}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3FB7AA86-683A-4D50-A485-04F76C31D551}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3FB7AA86-683A-4D50-A485-04F76C31D551}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3FB7AA86-683A-4D50-A485-04F76C31D551}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {9D61C1AB-BB3E-4F5D-A103-203CA7701A9B}
+	EndGlobalSection
+EndGlobal
