@@ -3,19 +3,30 @@
 public static class RPGMakerDecryptor
 {
 	private const string OctetStream = "application/octet-stream";
-	private const string RPG_MAKER_MV_MAGIC = "5250474d560000000003010000000000";
+	private const int DEFAULT_HEADER_LENGTH = 16;
+	private const string DEFAULT_SIGNATURE = "5250474d56000000";
+	private const string DEFAULT_VERSION = "000301";
+	private const string DEFAULT_REMAIN = "0000000000";
+
+	private static readonly byte[] _pngHeaderBytes = new byte[]
+	{
+		0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+		0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52
+	};
+
+	public static byte[] PNG_HEADER_BYTES => (byte[])_pngHeaderBytes.Clone();
 
 	/// <summary>
 	/// Perform XOR encryption/decryption on a byte array using a given key.
 	/// </summary>
 	/// <param name="data">The byte array to encrypt/decrypt.</param>
 	/// <param name="key">The key used for the XOR operation.</param>
-	/// <exception cref="ArgumentNullException">Data or key is null</exception>
 	/// <returns>The encrypted/decrypted byte array.</returns>
+	/// <exception cref="ArgumentNullException">Data or key is null</exception>
 	/// <remarks>The logic in this code will always return big endian bytes.</remarks>
 	public static byte[] IntXor(byte[] data, byte[] key)
 	{
-		// Check for null or empty data
+		// Check for null data
 		ArgumentNullException.ThrowIfNull(data);
 		ArgumentNullException.ThrowIfNull(key);
 
@@ -66,17 +77,10 @@ public static class RPGMakerDecryptor
 		}
 
 		// Extract the first 32 bytes for ID and header
-		var idBytes = fileContent.Take(16).ToArray();
-		var headerBytes = fileContent.Skip(16).Take(16).ToArray();
+		var idBytes = fileContent.Take(DEFAULT_HEADER_LENGTH).ToArray();
+		var headerBytes = fileContent.Skip(DEFAULT_HEADER_LENGTH).Take(DEFAULT_HEADER_LENGTH).ToArray();
 
-		// Validate ID against the RPG Maker MV magic number
-		if (string.Compare(
-			BitConverter.ToString(idBytes).Replace("-", ""),
-			RPG_MAKER_MV_MAGIC,
-			StringComparison.OrdinalIgnoreCase) != 0)
-		{
-			throw new ArgumentException("First 16 bytes look wrong on this file", nameof(key));
-		}
+		// TODO: Not sure that we need to validate idBytes at this point
 
 		return IntXor(headerBytes, key);
 	}
@@ -86,7 +90,7 @@ public static class RPGMakerDecryptor
 	/// </summary>
 	/// <param name="srcPath">Source</param>
 	/// <returns>New source path</returns>
-	/// <exception cref="ArgumentException">srcPath is invalid</exception>
+	/// <exception cref="ArgumentException">Source path is invalid</exception>
 	public static string UpdateSrcPath(string srcPath)
 	{
 		var srcInfo = new DirectoryInfo(srcPath);
