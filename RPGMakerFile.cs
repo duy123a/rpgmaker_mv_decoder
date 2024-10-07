@@ -45,6 +45,13 @@ namespace rpgmaker_decoder
 			_filePath = filePath;
 			_newFilePath = string.Empty;
 			_content = File.ReadAllBytes(filePath);
+			//using (var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read))
+			//{
+			//	using (var reader = new BinaryReader(fileStream))
+			//	{
+			//		_content = reader.ReadBytes((int)reader.BaseStream.Length);
+			//	}
+			//}
 		}
 
 		/// <summary>
